@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+from extractor.chain import has_content
 from extractor.config import OUTPUT_DIR
 
 
@@ -14,7 +15,7 @@ def extract_with_ebook_convert(input_path: str) -> str | None:
         )
         if result.returncode == 0 and output_path.exists():
             text = output_path.read_text(encoding="utf-8", errors="replace")
-            if text.strip():
+            if has_content(text):
                 return text
     except Exception:
         pass

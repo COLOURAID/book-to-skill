@@ -7,6 +7,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
+from extractor.chain import has_content
 from extractor.exceptions import ExtractionError
 
 from extractor.config import (
@@ -29,17 +30,16 @@ from extractor.parsers.html import extract_html_file
 from extractor.parsers.docx import extract_docx
 from extractor.parsers.rtf import extract_rtf
 from extractor.parsers.calibre import extract_with_ebook_convert
-from extractor.parsers.pdf import (
-    extract_with_docling,
-    extract_with_pdftotext,
-    extract_with_pypdf2,
-    extract_with_pdfminer,
-    count_pages,
-)
-from extractor.parsers.epub import (
-    extract_with_ebooklib,
-    extract_with_zipfile,
-    count_epub_chapters,
+from extractor.parsers.pdf import extract_pdf, count_pages
+from extractor.parsers.epub import extract_epub, count_epub_chapters
+
+# Keys copied into the per-source metadata array inside the output JSON.
+# Defined once here so the dict-building in extract_single_file() and the
+# projection in main() stay in sync automatically.
+SOURCE_METADATA_KEYS = (
+    "source_file", "filename", "format", "extraction_method",
+    "file_size_mb", "pages", "pages_label", "chars", "words",
+    "estimated_tokens", "chapters_detected", "has_toc",
 )
 
 
@@ -158,13 +158,13 @@ def resolve_input_files(paths: list[str]) -> list[Path]:
 def extract_single_file(input_path: Path, extraction_mode: str, install_mode: str) -> dict:
     """Extract text and metadata from a single file path."""
     input_str = str(input_path)
-    
+
     if not input_path.exists():
         raise ExtractionError(f"File not found: {input_str}")
-        
+
     ext = input_path.suffix.lower()
     document_format = ext.lstrip(".")
-    
+
     # Sniff magic bytes if suffix is not supported
     if ext not in SUPPORTED_EXTENSIONS:
         with open(input_str, "rb") as f:
@@ -194,128 +194,60 @@ def extract_single_file(input_path: Path, extraction_mode: str, install_mode: st
             raise ExtractionError(
                 f"Unsupported format '{ext or '<none>'}'. Supported: {supported_formats_message()}"
             )
-            
+
     prepare_dependencies(ext, extraction_mode, install_mode)
-    
+
     if ext in CALIBRE_EBOOK_EXTENSIONS and not shutil.which("ebook-convert"):
         raise ExtractionError(
             "MOBI/AZW/AZW3 extraction requires Calibre's ebook-convert command. "
             "Install Calibre and ensure ebook-convert is on PATH, then rerun this command."
         )
-        
-    text = ""
-    method = ""
+
+    # Sensible defaults — overridden only by formats that have real page counts.
     pages = 0
     pages_label = "sections"
-    
+
     if ext == ".epub":
         print(f"Extracting EPUB: {input_str}")
-        text = extract_with_ebooklib(input_str)
-        if text and text.strip():
-            method = "ebooklib"
-        else:
-            print("ebooklib not available")
-            print("Trying stdlib zipfile parser...", end=" ", flush=True)
-            text = extract_with_zipfile(input_str)
-            if text and text.strip():
-                print("OK")
-                method = "zipfile"
-            else:
-                print("FAILED")
-                raise ExtractionError(
-                    "Could not extract text from EPUB.\n"
-                    "Install ebooklib + beautifulsoup4 for best results:\n"
-                    "  pip3 install ebooklib beautifulsoup4"
-                )
+        text, method = extract_epub(input_str)
         pages = count_epub_chapters(input_str)
         pages_label = "spine_items"
     elif ext == ".pdf":
         print(f"Extracting PDF: {input_str}")
-        if extraction_mode == "technical":
-            print("Mode: technical — using Docling (layout-aware)...", end=" ", flush=True)
-            text = extract_with_docling(input_str)
-            if text:
-                method = "docling"
-                print("OK")
-            else:
-                print("not available, falling back to pdftotext")
-                extraction_mode = "text"
-                
-        if extraction_mode == "text" or not text:
-            print("Mode: text — using pdftotext...")
-            print("Trying pdftotext...", end=" ", flush=True)
-            text = extract_with_pdftotext(input_str)
-            
-            if text:
-                method = "pdftotext"
-                print("OK")
-            else:
-                print("not available")
-                print("Trying PyPDF2...", end=" ", flush=True)
-                text = extract_with_pypdf2(input_str)
-                if text:
-                    method = "PyPDF2"
-                    print("OK")
-                else:
-                    print("not available")
-                    print("Trying pdfminer.six...", end=" ", flush=True)
-                    text = extract_with_pdfminer(input_str)
-                    if text:
-                        method = "pdfminer"
-                        print("OK")
-                    else:
-                        print("FAILED")
-                        raise ExtractionError(
-                            "Could not extract text from PDF.\n"
-                            "Install one of: poppler-utils (pdftotext), PyPDF2, or pdfminer.six\n"
-                            "  sudo apt install poppler-utils\n"
-                            "  pip3 install PyPDF2\n"
-                            "  pip3 install pdfminer.six"
-                        )
-                        
+        text, method = extract_pdf(input_str, extraction_mode)
         pages = count_pages(input_str)
         pages_label = "pages"
     elif ext in TEXT_EXTENSIONS:
         print(f"Extracting text document: {input_str}")
         text = read_text_file(input_str)
-        if text is None or not text.strip():
+        if not has_content(text):
             raise ExtractionError(f"Could not read text document: {input_path.name}")
         method = "plain-text"
-        pages = 0
-        pages_label = "sections"
     elif ext in HTML_EXTENSIONS:
         print(f"Extracting HTML: {input_str}")
         text = extract_html_file(input_str)
-        if text is None or not text.strip():
+        if not has_content(text):
             raise ExtractionError(f"Could not extract text from HTML: {input_path.name}")
         method = "html-parser"
-        pages = 0
-        pages_label = "sections"
     elif ext == ".docx":
         print(f"Extracting DOCX: {input_str}")
         text, method = extract_docx(input_str)
-        pages = 0
-        pages_label = "sections"
     elif ext == ".rtf":
         print(f"Extracting RTF: {input_str}")
         text, method = extract_rtf(input_str)
-        pages = 0
-        pages_label = "sections"
     elif ext in CALIBRE_EBOOK_EXTENSIONS:
         print(f"Extracting ebook with Calibre: {input_str}")
         text = extract_with_ebook_convert(input_str)
-        if text is None or not text.strip():
+        if not has_content(text):
             raise ExtractionError(
                 f"Could not extract text from {ext}. Install Calibre and ensure ebook-convert is on PATH."
             )
         method = "ebook-convert"
-        pages = 0
-        pages_label = "sections"
-        
+
     tokens = estimate_tokens(text)
     structure = detect_structure(text)
     file_size_mb = os.path.getsize(input_str) / (1024 * 1024)
-    
+
     return {
         "source_file": str(input_path.resolve()),
         "filename": input_path.name,
@@ -407,20 +339,7 @@ def main():
         "output_text": str(OUTPUT_TEXT),
         "total_sources": len(extracted_sources),
         "sources": [
-            {
-                "source_file": src["source_file"],
-                "filename": src["filename"],
-                "format": src["format"],
-                "extraction_method": src["extraction_method"],
-                "file_size_mb": src["file_size_mb"],
-                "pages": src["pages"],
-                "pages_label": src["pages_label"],
-                "chars": src["chars"],
-                "words": src["words"],
-                "estimated_tokens": src["estimated_tokens"],
-                "chapters_detected": src["chapters_detected"],
-                "has_toc": src["has_toc"]
-            }
+            {k: src[k] for k in SOURCE_METADATA_KEYS}
             for src in extracted_sources
         ],
         **consolidated_structure,
