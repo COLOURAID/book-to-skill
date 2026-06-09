@@ -167,8 +167,11 @@ def extract_single_file(input_path: Path, extraction_mode: str, install_mode: st
     
     # Sniff magic bytes if suffix is not supported
     if ext not in SUPPORTED_EXTENSIONS:
-        with open(input_str, "rb") as f:
-            header = f.read(8)
+        try:
+            with open(input_str, "rb") as f:
+                header = f.read(8)
+        except OSError as exc:
+            raise ExtractionError(f"Cannot read file {input_path.name}: {exc}") from exc
         if header[:4] == b"%PDF":
             ext = ".pdf"
             document_format = "pdf"
@@ -214,8 +217,11 @@ def extract_single_file(input_path: Path, extraction_mode: str, install_mode: st
         if text and text.strip():
             method = "ebooklib"
         else:
-            print("ebooklib not available")
-            print("Trying stdlib zipfile parser...", end=" ", flush=True)
+            from extractor.dependencies import python_module_available
+            if not python_module_available("ebooklib"):
+                print("ebooklib not installed, trying stdlib zipfile parser...", end=" ", flush=True)
+            else:
+                print("ebooklib extraction returned no text, trying stdlib zipfile parser...", end=" ", flush=True)
             text = extract_with_zipfile(input_str)
             if text and text.strip():
                 print("OK")

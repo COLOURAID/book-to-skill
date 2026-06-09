@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+import sys
 
 
 def extract_with_pdftotext(pdf_path: str) -> str | None:
@@ -12,8 +13,14 @@ def extract_with_pdftotext(pdf_path: str) -> str | None:
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout
-    except Exception:
+        if result.returncode != 0:
+            print(f"pdftotext exited with code {result.returncode}: {result.stderr.strip()}", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        print(f"pdftotext timed out on {pdf_path}", file=sys.stderr)
+    except ImportError:
         pass
+    except Exception as exc:
+        print(f"pdftotext failed on {pdf_path}: {exc}", file=sys.stderr)
     return None
 
 
@@ -23,15 +30,17 @@ def extract_with_pypdf2(pdf_path: str) -> str | None:
         text_parts = []
         with open(pdf_path, "rb") as f:
             reader = PyPDF2.PdfReader(f)
-            for page in reader.pages:
+            for i, page in enumerate(reader.pages):
                 try:
                     text_parts.append(page.extract_text() or "")
-                except Exception:
+                except Exception as exc:
+                    print(f"PyPDF2: failed to extract page {i + 1} of {pdf_path}: {exc}", file=sys.stderr)
                     text_parts.append("")
         return "\n".join(text_parts)
     except ImportError:
         return None
-    except Exception:
+    except Exception as exc:
+        print(f"PyPDF2 failed on {pdf_path}: {exc}", file=sys.stderr)
         return None
 
 
@@ -41,7 +50,8 @@ def extract_with_pdfminer(pdf_path: str) -> str | None:
         return extract_text(pdf_path)
     except ImportError:
         return None
-    except Exception:
+    except Exception as exc:
+        print(f"pdfminer failed on {pdf_path}: {exc}", file=sys.stderr)
         return None
 
 
@@ -66,7 +76,8 @@ def extract_with_docling(pdf_path: str) -> str | None:
         return result.document.export_to_markdown()
     except ImportError:
         return None
-    except Exception:
+    except Exception as exc:
+        print(f"docling failed on {pdf_path}: {exc}", file=sys.stderr)
         return None
 
 
@@ -80,12 +91,15 @@ def count_pages(pdf_path: str) -> int:
             for line in result.stdout.splitlines():
                 if line.startswith("Pages:"):
                     return int(line.split(":")[1].strip())
-        except Exception:
-            pass
-    # Fallback: count form-feed chars (pdftotext -layout uses \f between pages)
+        except Exception as exc:
+            print(f"pdfinfo failed on {pdf_path}: {exc}", file=sys.stderr)
+    # Fallback: count pages with PyPDF2
     try:
         import PyPDF2
         with open(pdf_path, "rb") as f:
             return len(PyPDF2.PdfReader(f).pages)
-    except Exception:
+    except ImportError:
+        return 0
+    except Exception as exc:
+        print(f"count_pages: PyPDF2 failed on {pdf_path}: {exc}", file=sys.stderr)
         return 0

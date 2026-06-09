@@ -1,5 +1,6 @@
 import posixpath
 import re
+import sys
 import zipfile
 from extractor.parsers.html import _HTMLTextExtractor
 
@@ -18,7 +19,8 @@ def extract_with_ebooklib(epub_path: str) -> str | None:
         return "\n\n".join(parts)
     except ImportError:
         return None
-    except Exception:
+    except Exception as exc:
+        print(f"ebooklib failed on {epub_path}: {exc}", file=sys.stderr)
         return None
 
 
@@ -34,8 +36,10 @@ def _find_opf_path(zf: zipfile.ZipFile) -> str | None:
         match = re.search(r'full-path=["\']([^"\']+\.opf)["\']', container)
         if match:
             return match.group(1)
-    except (KeyError, Exception):
+    except KeyError:
         pass
+    except Exception as exc:
+        print(f"Failed to parse container.xml in EPUB: {exc}", file=sys.stderr)
 
     # Fallback: glob for any .opf file
     opf_files = [n for n in zf.namelist() if n.endswith(".opf")]
@@ -75,10 +79,12 @@ def extract_with_zipfile(epub_path: str) -> str | None:
                     parser = _HTMLTextExtractor()
                     parser.feed(raw)
                     parts.append(parser.get_text())
-                except Exception:
+                except Exception as exc:
+                    print(f"zipfile EPUB: failed to parse {name}: {exc}", file=sys.stderr)
                     continue
             return "\n\n".join(parts) if parts else None
-    except Exception:
+    except Exception as exc:
+        print(f"zipfile EPUB extraction failed on {epub_path}: {exc}", file=sys.stderr)
         return None
 
 
@@ -91,6 +97,7 @@ def count_epub_chapters(epub_path: str) -> int:
                 return 0
             opf_text = zf.read(opf_path).decode("utf-8", errors="replace")
             return len(re.findall(r'<itemref\b', opf_text))
-    except Exception:
+    except Exception as exc:
+        print(f"count_epub_chapters failed on {epub_path}: {exc}", file=sys.stderr)
         return 0
 

@@ -1,3 +1,4 @@
+import sys
 import zipfile
 from extractor.exceptions import ExtractionError
 
@@ -15,7 +16,8 @@ def extract_docx_with_python_docx(docx_path: str) -> str | None:
         return "\n".join(parts)
     except ImportError:
         return None
-    except Exception:
+    except Exception as exc:
+        print(f"python-docx failed on {docx_path}: {exc}", file=sys.stderr)
         return None
 
 
@@ -33,7 +35,8 @@ def extract_docx_with_zipfile(docx_path: str) -> str | None:
             if texts:
                 parts.append("".join(texts))
         return "\n".join(parts) if parts else None
-    except Exception:
+    except Exception as exc:
+        print(f"zipfile DOCX parser failed on {docx_path}: {exc}", file=sys.stderr)
         return None
 
 
