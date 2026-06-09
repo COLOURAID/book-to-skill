@@ -1,5 +1,5 @@
 import zipfile
-from extractor.exceptions import ExtractionError
+from extractor.chain import run_extraction_chain
 
 
 def extract_docx_with_python_docx(docx_path: str) -> str | None:
@@ -38,23 +38,20 @@ def extract_docx_with_zipfile(docx_path: str) -> str | None:
 
 
 def extract_docx(docx_path: str) -> tuple[str, str]:
-    print("Trying python-docx...", end=" ", flush=True)
-    text = extract_docx_with_python_docx(docx_path)
-    if text and text.strip():
-        print("OK")
-        return text, "python-docx"
+    """High-level DOCX extraction with automatic fallback.
 
-    print("not available")
-    print("Trying stdlib DOCX parser...", end=" ", flush=True)
-    text = extract_docx_with_zipfile(docx_path)
-    if text and text.strip():
-        print("OK")
-        return text, "zipfile-docx"
-
-    print("FAILED")
-    raise ExtractionError(
-        "Could not extract text from DOCX.\n"
-        "Install python-docx for best results:\n"
-        "  pip3 install python-docx"
+    Tries python-docx first, then the stdlib ZIP/XML parser.
+    Returns ``(text, method_name)``.
+    """
+    return run_extraction_chain(
+        [
+            ("python-docx", lambda: extract_docx_with_python_docx(docx_path)),
+            ("zipfile-docx", lambda: extract_docx_with_zipfile(docx_path)),
+        ],
+        error_message=(
+            "Could not extract text from DOCX.\n"
+            "Install python-docx for best results:\n"
+            "  pip3 install python-docx"
+        ),
     )
 

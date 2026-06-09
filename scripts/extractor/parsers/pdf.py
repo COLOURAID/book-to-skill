@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+from extractor.chain import has_content, run_extraction_chain
 
 
 def extract_with_pdftotext(pdf_path: str) -> str | None:
@@ -82,10 +83,44 @@ def count_pages(pdf_path: str) -> int:
                     return int(line.split(":")[1].strip())
         except Exception:
             pass
-    # Fallback: count form-feed chars (pdftotext -layout uses \f between pages)
+    # Fallback: count pages via PyPDF2
     try:
         import PyPDF2
         with open(pdf_path, "rb") as f:
             return len(PyPDF2.PdfReader(f).pages)
     except Exception:
         return 0
+
+
+def extract_pdf(pdf_path: str, extraction_mode: str) -> tuple[str, str]:
+    """High-level PDF extraction with mode-aware fallback.
+
+    *technical* mode tries Docling first (layout-aware), then falls through
+    to the text chain.  *text* mode goes straight to pdftotext → PyPDF2 →
+    pdfminer.
+
+    Returns ``(text, method_name)``.
+    """
+    if extraction_mode == "technical":
+        print("Mode: technical \u2014 using Docling (layout-aware)...", end=" ", flush=True)
+        text = extract_with_docling(pdf_path)
+        if has_content(text):
+            print("OK")
+            return text, "docling"
+        print("not available, falling back to text chain")
+
+    print("Mode: text \u2014 using pdftotext...")
+    return run_extraction_chain(
+        [
+            ("pdftotext", lambda: extract_with_pdftotext(pdf_path)),
+            ("PyPDF2", lambda: extract_with_pypdf2(pdf_path)),
+            ("pdfminer", lambda: extract_with_pdfminer(pdf_path)),
+        ],
+        error_message=(
+            "Could not extract text from PDF.\n"
+            "Install one of: poppler-utils (pdftotext), PyPDF2, or pdfminer.six\n"
+            "  sudo apt install poppler-utils\n"
+            "  pip3 install PyPDF2\n"
+            "  pip3 install pdfminer.six"
+        ),
+    )

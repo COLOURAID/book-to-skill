@@ -1,6 +1,7 @@
 import posixpath
 import re
 import zipfile
+from extractor.chain import run_extraction_chain
 from extractor.parsers.html import _HTMLTextExtractor
 
 
@@ -93,4 +94,23 @@ def count_epub_chapters(epub_path: str) -> int:
             return len(re.findall(r'<itemref\b', opf_text))
     except Exception:
         return 0
+
+
+def extract_epub(epub_path: str) -> tuple[str, str]:
+    """High-level EPUB extraction with automatic fallback.
+
+    Tries ebooklib first, then the stdlib zipfile parser.
+    Returns ``(text, method_name)``.
+    """
+    return run_extraction_chain(
+        [
+            ("ebooklib", lambda: extract_with_ebooklib(epub_path)),
+            ("zipfile", lambda: extract_with_zipfile(epub_path)),
+        ],
+        error_message=(
+            "Could not extract text from EPUB.\n"
+            "Install ebooklib + beautifulsoup4 for best results:\n"
+            "  pip3 install ebooklib beautifulsoup4"
+        ),
+    )
 
