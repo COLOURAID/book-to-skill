@@ -22,10 +22,18 @@ def install_python_packages(packages: list[str]) -> bool:
     if not packages:
         return True
 
+    # Validate package names against the known allowlist to prevent
+    # arbitrary arguments from reaching pip.
+    allowed = set(PYTHON_DEPENDENCIES.values())
+    for pkg in packages:
+        if pkg not in allowed:
+            print(f"Refusing to install unknown package: {pkg}", file=sys.stderr)
+            return False
+
     print(f"Installing missing Python package(s): {', '.join(packages)}")
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", *packages],
+            [sys.executable, "-m", "pip", "install", "--no-input", *packages],
             text=True,
             timeout=600,
         )
