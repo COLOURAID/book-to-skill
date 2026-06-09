@@ -3,6 +3,22 @@ import re
 import zipfile
 from extractor.parsers.html import _HTMLTextExtractor
 
+# Guard against zip-bomb style decompression attacks.
+_MAX_ENTRY_BYTES = 100 * 1024 * 1024   # 100 MB per entry
+_MAX_TOTAL_BYTES = 500 * 1024 * 1024   # 500 MB cumulative
+
+
+def _safe_read(zf: zipfile.ZipFile, name: str, budget: list[int]) -> bytes:
+    """Read a ZIP entry, enforcing per-entry and cumulative size limits."""
+    info = zf.getinfo(name)
+    if info.file_size > _MAX_ENTRY_BYTES:
+        raise ValueError(f"ZIP entry {name!r} exceeds size limit ({info.file_size} bytes)")
+    if budget[0] - info.file_size < 0:
+        raise ValueError("Cumulative decompressed size budget exceeded")
+    data = zf.read(name)
+    budget[0] -= len(data)
+    return data
+
 
 def extract_with_ebooklib(epub_path: str) -> str | None:
     try:
@@ -47,6 +63,7 @@ def extract_with_zipfile(epub_path: str) -> str | None:
     try:
         with zipfile.ZipFile(epub_path) as zf:
             names = zf.namelist()
+            budget = [_MAX_TOTAL_BYTES]
 
             # Locate OPF and determine its directory for resolving relative hrefs
             opf_path = _find_opf_path(zf)
@@ -55,7 +72,7 @@ def extract_with_zipfile(epub_path: str) -> str | None:
             # Read OPF spine to get reading order, fall back to sorted xhtml files
             spine_order: list[str] = []
             if opf_path:
-                opf_text = zf.read(opf_path).decode("utf-8", errors="replace")
+                opf_text = _safe_read(zf, opf_path, budget).decode("utf-8", errors="replace")
                 raw_hrefs = re.findall(r'href=["\']([^"\']+\.(?:xhtml|html))["\']', opf_text)
                 # Resolve hrefs relative to the OPF directory
                 for href in raw_hrefs:
@@ -71,7 +88,7 @@ def extract_with_zipfile(epub_path: str) -> str | None:
             parts = []
             for name in html_files:
                 try:
-                    raw = zf.read(name).decode("utf-8", errors="replace")
+                    raw = _safe_read(zf, name, budget).decode("utf-8", errors="replace")
                     parser = _HTMLTextExtractor()
                     parser.feed(raw)
                     parts.append(parser.get_text())
