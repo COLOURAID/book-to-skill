@@ -44,13 +44,17 @@ Running `/book-to-skill your-book.pdf` (or a folder, glob, or list of files) cre
 
 | File | Purpose | Size |
 |------|---------|------|
-| `SKILL.md` | Core mental models + chapter index | ~4,000 tokens |
-| `chapters/ch01-*.md` … | One file per chapter, loaded on-demand | ~1,000 tokens each |
+| `SKILL.md` | Core mental models + visual map + chapter index | ~4,000 tokens |
+| `chapters/ch01-*.md` … | One file per chapter (with optional inline Mermaid visual), loaded on-demand | ~1,000 tokens each |
+| `diagrams.md` | Mermaid mind-map, framework flowcharts, decision tree, and concept dependency graph | ~2,500 tokens |
 | `glossary.md` | Every key term, alphabetically sorted with chapter refs | ~1,500 tokens |
 | `patterns.md` | All techniques, algorithms, and design patterns | ~2,000 tokens |
 | `cheatsheet.md` | Decision tables and quick-reference rules | ~1,000 tokens |
+| `visuals/` *(optional)* | Rendered PNGs of every Mermaid block — only generated when `mermaid-cli` (`mmdc`) is installed | — |
 
 **Chapter files are loaded on-demand** — they don't count against the skill budget until you ask about that topic.
+
+**Visuals render natively** in GitHub, VS Code, and Claude Code markdown preview. Install `mermaid-cli` (`npm i -g @mermaid-js/mermaid-cli`) if you want PNGs exported into `visuals/`; otherwise the Mermaid blocks are all you need.
 
 ---
 
@@ -151,7 +155,8 @@ scripts/extract.py <paths…> --mode <technical|text>
           Generates per-chapter summaries  (800–1,200 tokens each)
           technical → includes Code Examples + Reference Tables sections
           Generates glossary, patterns, cheatsheet
-          Generates master SKILL.md with core mental models
+          Generates diagrams.md (Mermaid mind-map + flowcharts) + inline chapter visuals
+          Generates master SKILL.md with core mental models + visual map
                │
                ▼
           ~/.claude/skills/<slug>/  ✅ written
